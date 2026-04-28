@@ -1,0 +1,17 @@
+# Use an official Python image
+FROM python:3.11-slim
+
+# Copy application files
+COPY . /populate_chroma
+
+# Set the working directory
+WORKDIR /populate_chroma
+
+RUN apt-get update && \
+	apt-get clean
+
+# Install dependencies
+RUN pip install --upgrade pip && pip install -r requirements.txt
+
+# Run the script
+CMD ["python", "populate_chroma.py"]

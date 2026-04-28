@@ -1,0 +1,57 @@
+services:
+    chromadb:
+        container_name: chromadb
+        image: chromadb/chroma:latest
+        volumes:
+            - index_data:/chroma/.chroma/index
+            - chroma_persist_storage:${PERSIST_DIRECTORY}
+        ports:
+            - '8000:8000'
+        env_file:
+            - ./.env
+
+    populate_chroma:
+        container_name: populate_chroma
+        build:
+            context: ./populate_chroma
+            dockerfile: Dockerfile.populate
+        depends_on:
+            - chromadb
+        volumes:
+            - preprocess_destination_data:/populate_chroma/dataset_md
+        env_file:
+            - ./.env
+
+    api:
+        container_name: api
+        build:
+            context: ./api
+            dockerfile: Dockerfile
+        depends_on:
+            - chromadb
+        ports:
+            - '8002:80' # Expose the API on port 8002 of the host machine
+        env_file:
+            - ./.env
+
+    front_chat:
+        build: ./front-chat
+        ports:
+            - "8501:8501"
+        env_file:
+            - ./front-chat/.env
+        depends_on:
+            - backend_api
+
+    backend_api:
+        build: ./backend-api
+        ports:
+            - "8001:8001"
+        env_file:
+            - ./backend-api/.env
+
+volumes:
+    index_data:
+    chroma_persist_storage:
+    preprocess_destination_data:
+        external: true
