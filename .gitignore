@@ -179,3 +179,7 @@ preprocess/dataset_md/
 
 # OAuth credentials — never commit
 **/client_secret*.json
+
+# Local corpus for ChromaDB ingestion (drop your *.md files here; not tracked)
+seed_data/*
+!seed_data/.gitkeep
