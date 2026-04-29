@@ -102,24 +102,47 @@ chroma_tool = StructuredTool.from_function(
 class StockPriceQuery(BaseModel):
     ticker: str
 
-def _get_stock_price(ticker: str) -> Dict[str, Any]:
+def _get_stock_price(ticker: str) -> str:
     """
-    Query the current stock price using Yahoo Finance.
-    Returns a dictionary with 'llm_response' and 'retrieved_docs'.
-    It attempts to obtain the price using different available fields.
+    Query the current stock price using Yahoo Finance. Returns a human-
+    readable string. Falls back gracefully when the ticker is invalid,
+    delisted, or Yahoo simply has no price field for it.
     """
+    ticker_up = ticker.upper()
+
+    # Try fast_info first — it's lighter, doesn't require the full .info
+    # payload, and degrades more cleanly when a ticker is delisted.
     try:
-        stock = yf.Ticker(ticker)
-        price = stock.info.get("regularMarketPrice") or stock.info.get("previousClose")
-        if price is None and hasattr(stock, "fast_info"):
+        stock = yf.Ticker(ticker_up)
+        price = None
+        try:
             price = stock.fast_info.get("lastPrice")
+        except Exception:
+            price = None
+
         if price is None:
-            raise ValueError("Price not available.")
-            
-        return f"The current price of {ticker.upper()} is ${price:.2f}.\n\nSources: Yahoo Finance"
+            # Fall back to the heavier .info dict, which can KeyError on
+            # delisted/invalid tickers — guard each access.
+            try:
+                info = stock.info or {}
+                price = info.get("regularMarketPrice") or info.get("previousClose")
+            except Exception:
+                price = None
+
+        if price is None:
+            return (
+                f"I couldn't find a current price for ticker '{ticker_up}'. "
+                f"It may be invalid, delisted, or temporarily unavailable from "
+                f"Yahoo Finance. Please double-check the ticker symbol."
+            )
+
+        return f"The current price of {ticker_up} is ${price:.2f}.\n\nSources: Yahoo Finance"
     except Exception as e:
-        logger.error(f"Error obtaining stock price for {ticker}: {e}")
-        return f"Error obtaining stock price for {ticker}: {str(e)}"
+        logger.error(f"Unexpected error obtaining stock price for {ticker_up}: {e}", exc_info=True)
+        return (
+            f"I couldn't retrieve a price for '{ticker_up}' right now. "
+            f"Please try again, or verify the ticker symbol."
+        )
 
 
 stock_price_tool = StructuredTool.from_function(
@@ -141,28 +164,51 @@ stock_price_tool = StructuredTool.from_function(
 class FinancialInfoQuery(BaseModel):
     ticker: str
 
-def _get_financial_info(ticker: str) -> Dict[str, Any]:
+def _get_financial_info(ticker: str) -> str:
     """
-    Query the current financial information of a company using Yahoo Finance.
-    Returns a dictionary with 'llm_response' and 'retrieved_docs'.
+    Query current financial information from Yahoo Finance. Returns a
+    human-readable string. Fails gracefully when the ticker is invalid,
+    delisted, or Yahoo's .info payload errors out for it.
     """
+    ticker_up = ticker.upper()
+
     try:
-        stock = yf.Ticker(ticker)
-        info = stock.info
-        market_cap = info.get("marketCap", "N/A")
-        trailing_pe = info.get("trailingPE", "N/A")
-        forward_pe = info.get("forwardPE", "N/A")
-        dividend_yield = info.get("dividendYield", "N/A")
+        stock = yf.Ticker(ticker_up)
+        try:
+            info = stock.info or {}
+        except Exception:
+            info = {}
+
+        market_cap = info.get("marketCap")
+        trailing_pe = info.get("trailingPE")
+        forward_pe = info.get("forwardPE")
+        dividend_yield = info.get("dividendYield")
+
+        # If every interesting field is missing, treat the ticker as not
+        # found rather than printing a wall of "N/A".
+        if all(v is None for v in (market_cap, trailing_pe, forward_pe, dividend_yield)):
+            return (
+                f"I couldn't find financial information for ticker '{ticker_up}'. "
+                f"It may be invalid, delisted, or temporarily unavailable from "
+                f"Yahoo Finance. Please double-check the ticker symbol."
+            )
+
+        def fmt(v):
+            return "N/A" if v is None else v
+
         response_text = (
-            f"Financial information for {ticker.upper()}: "
-            f"Market Cap: {market_cap}, Trailing P/E: {trailing_pe}, "
-            f"Forward P/E: {forward_pe}, Dividend Yield: {dividend_yield}."
+            f"Financial information for {ticker_up}: "
+            f"Market Cap: {fmt(market_cap)}, Trailing P/E: {fmt(trailing_pe)}, "
+            f"Forward P/E: {fmt(forward_pe)}, Dividend Yield: {fmt(dividend_yield)}."
         )
-    
+
         return f"{response_text}\n\nSources: Yahoo Finance"
     except Exception as e:
-        logger.error(f"Error obtaining financial information for {ticker}: {e}", exc_info=True)
-        return f"Error obtaining financial information for {ticker}: {str(e)}"
+        logger.error(f"Unexpected error obtaining financial information for {ticker_up}: {e}", exc_info=True)
+        return (
+            f"I couldn't retrieve financial information for '{ticker_up}' right now. "
+            f"Please try again, or verify the ticker symbol."
+        )
 
 
 financial_info_tool = StructuredTool.from_function(

@@ -60,6 +60,15 @@ Response Guidelines:
 
 4. Transparency & Source Attribution
 	- If no reliable source is available, clearly state: “I don't have that information available.” Never fabricate details.
+	- CRITICAL grounding rule: if the user asks about a specific company, ticker,
+	  or entity, but **none of the retrieved context explicitly mentions that
+	  exact name or ticker**, you MUST respond with:
+	  “I don't have information about [entity] in my available sources.”
+	  Do NOT pull facts from documents about other companies and attribute them
+	  to the asked-about entity. Do NOT guess a ticker symbol from a similar-
+	  looking source filename.
+	- Cite only those sources whose content was actually used in your answer.
+	  If you don't use a retrieved chunk, don't list its source.
 
 Response Format:
 
@@ -136,7 +145,7 @@ async def chatbot_response(request: ChatRequest):
     question = request.question
     
     # Define the retriever
-    retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={'k': 5})
+    retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={'k': 10})
     
     # Create a basic chain
     chain = prompt_template | model | StrOutputParser()

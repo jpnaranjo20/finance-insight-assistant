@@ -1,15 +1,13 @@
-FROM python:3.9-slim
+FROM python:3.11-slim
 WORKDIR /app
-
-RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar todo el contenido de la aplicación
+# Copy complete app content
 COPY app /app/app
 
-# Establecer PYTHONPATH
+# Set PYTHONPATH
 ENV PYTHONPATH=/app
 
 EXPOSE 8000
