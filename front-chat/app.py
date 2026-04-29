@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 # ===================== Page Configuration =====================
 st.set_page_config(
-    page_title="Financial Advisor ChatBot",
+    page_title="Finance Insight Assistant",
     page_icon="💬",
     layout="centered",  # Centered layout, not full-width
     initial_sidebar_state="expanded",
@@ -37,7 +37,7 @@ load_dotenv()
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-BACKEND_API_URL = "http://backend_api:8000"
+BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://backend_api:8000")
 
 # ===================== Functions =====================
 
@@ -60,13 +60,13 @@ def check_credentials(username, password, filepath="users.json"):
         return False
     return username in users and users[username] == password
 
-def call_chat_api(messages):
+def call_chat_api(messages, thread_id):
     try:
         payload = {
             "messages": messages,
             "config": {
                 "configurable": {
-                    "thread_id": str(uuid.uuid4())
+                    "thread_id": thread_id
                 }
             }
         }
@@ -80,6 +80,8 @@ def call_chat_api(messages):
 # ===================== Session State Initialization =====================
 if "messages" not in st.session_state:
     st.session_state["messages"] = []
+if "thread_id" not in st.session_state:
+    st.session_state["thread_id"] = str(uuid.uuid4())
     
 # ===================== Sidebar with Disclaimer =====================
 st.sidebar.markdown(
@@ -107,7 +109,7 @@ navbar = """
 }
 </style>
 <div class="custom-navbar">
-  Financial Advisor ChatBot
+  Finance Insight Assistant
 </div>
 """
 st.markdown(navbar, unsafe_allow_html=True)
@@ -116,7 +118,7 @@ st.markdown(navbar, unsafe_allow_html=True)
 st.markdown("<div style='margin-top:70px;'></div>", unsafe_allow_html=True)
 
 # ===================== ChatBot Application =====================
-st.title("💬 Financial Advisor ChatBot")
+st.title("💬 Finance Insight Assistant")
 for msg in st.session_state["messages"]:
     st.chat_message(msg["role"]).write(msg["content"])
 
@@ -126,7 +128,7 @@ if prompt:
     st.chat_message("user").write(prompt)
     
     with st.spinner("Preparing response..."):
-        response = call_chat_api(st.session_state["messages"])
+        response = call_chat_api(st.session_state["messages"], st.session_state["thread_id"])
     
     if response and "response" in response:
         formatted_response = response["response"]
