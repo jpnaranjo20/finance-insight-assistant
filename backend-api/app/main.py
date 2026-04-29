@@ -56,7 +56,7 @@ def _call_chroma_api_tool(query: str) -> Dict[str, Any]:
     try:
         api_url = os.getenv("API_URL", "http://api:80/chatbot")
         payload = {"question": query}
-        resp = requests.post(api_url, json=payload, timeout=10)
+        resp = requests.post(api_url, json=payload, timeout=60)
 
         logger.info(f"Response code: {resp.status_code}")
         logger.info(f"Response content: {resp.text}")
@@ -264,7 +264,7 @@ Ideal Response Format:
 graph_builder = create_react_agent(
     llm,
     tools=[chroma_tool, stock_price_tool, financial_info_tool],
-    state_modifier=PROMPT_SYSTEM,
+    prompt=PROMPT_SYSTEM,
     checkpointer=MemorySaver()
 )
 

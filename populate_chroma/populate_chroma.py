@@ -38,31 +38,55 @@ while True:
         print("Retrying in 5 seconds...")
         time.sleep(5)
 
-def get_existing_sources(collection: Collection):
+def get_existing_sources(collection: Collection, page_size: int = 1000):
     """
     Retrieve a set of existing source file names from a given collection.
-    This function fetches all documents from the provided collection and extracts
-    the source file names from their metadata. It returns a set of unique source
-    file names.
+    Paginates through the collection so SQLite's variable limit is never hit
+    on collections with hundreds of thousands of chunks.
     Args:
         collection (Collection): The collection from which to retrieve documents.
+        page_size (int): Number of records to fetch per round-trip.
     Returns:
         set: A set of unique source file names extracted from the collection's metadata.
     """
-    
-    existing_sources = set()
-    
-    # collection.get() can be paginated in some Chroma versions, or you can use 'where'/'limit' arguments
-    # For a small dataset, you can fetch them all at once:
-    result = collection.get(include=["metadatas"])  # get all documents
 
-    # 'metadatas' is a list of metadata dicts, one per document
-    for meta in result["metadatas"]:
-        # Each meta is like {"source": "file_name.pdf"}
-        source_file = meta.get("source")
-        if source_file:
-            existing_sources.add(source_file)
-    
+    existing_sources = set()
+    offset = 0
+
+    # Walk the collection page by page. Each call to collection.get() with
+    # limit + offset issues a single SQL query bounded by `page_size` rows,
+    # which keeps us safely under SQLite's bind-parameter ceiling
+    # (SQLITE_MAX_VARIABLE_NUMBER, default 999 on old builds / 32766 on newer).
+    while True:
+        # Ask Chroma for one page of records (only metadatas — we don't need
+        # the raw documents or embeddings here, which keeps the response small).
+        result = collection.get(
+            include=["metadatas"],
+            limit=page_size,
+            offset=offset,
+        )
+        metadatas = result.get("metadatas") or []
+
+        # Empty page → we've walked off the end of the collection. Stop.
+        if not metadatas:
+            break
+
+        # Each metadata dict looks like {"source": "<original_pdf_name>.pdf",
+        # ...}. Collect the unique sources we've seen so the caller can
+        # filter out files that are already indexed.
+        for meta in metadatas:
+            source_file = meta.get("source")
+            if source_file:
+                existing_sources.add(source_file)
+
+        # Short page → this was the last one (Chroma returned fewer rows than
+        # we asked for). Bail out without making one more empty round-trip.
+        if len(metadatas) < page_size:
+            break
+
+        # Otherwise advance the offset and fetch the next page.
+        offset += page_size
+
     return existing_sources
 
 # Function to populate ChromaDB with MDs

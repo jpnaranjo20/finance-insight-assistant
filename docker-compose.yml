@@ -3,7 +3,6 @@ services:
         container_name: chromadb
         image: chromadb/chroma:latest
         volumes:
-            - index_data:/chroma/.chroma/index
             - chroma_persist_storage:${PERSIST_DIRECTORY}
         ports:
             - '8000:8000'
@@ -51,5 +50,4 @@ services:
             - ./backend-api/.env
 
 volumes:
-    index_data:
     chroma_persist_storage:

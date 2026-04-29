@@ -8,8 +8,8 @@ from langchain_openai import ChatOpenAI
 from langchain_chroma import Chroma
 
 from app.embeddings import get_embeddings
-from langchain.schema import StrOutputParser
-from langchain.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
 
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
@@ -29,6 +29,14 @@ COLLECTION_NAME = str(os.getenv("COLLECTION_NAME"))
 # Reader and writer share one factory (api/app/embeddings.py) so a single
 # EMBEDDING_PROVIDER env var keeps them in lockstep.
 embeddings_model = get_embeddings()
+
+# Warm up the embedding backend so the first user query doesn't pay for
+# model download / load (Chroma's default ONNX MiniLM is ~80 MB and lazy-
+# loads on first call — without this, the first /chatbot call typically
+# takes 20-40s, breaking any reasonable upstream timeout).
+print("Warming up embedding model...")
+_ = embeddings_model.embed_query("warmup")
+print("Embedding model ready.")
 
 system_template ="""
 

@@ -90,18 +90,23 @@ The project is organized into several components:
 - Users can interact with the chatbot through the frontend interface, asking questions related to NASDAQ companies.
 - The backend processes these queries, retrieves relevant information from the vector database, and generates responses using LangChain.
 
-## Note: To get the content of ChromaDB to persist across re-deploys
+## Note: ChromaDB persistence and the `PERSIST_DIRECTORY` variable
 
-You have to create the `PERSIST_DIRECTORY` environment variable in your `.env` file and set its value to `/chroma/whatever-you-want` (the default path where ChromaDB stores its data is `./chroma`, as stated [here](https://cookbook.chromadb.dev/core/storage-layout/)). That value is going to be the path inside the ChromaDB container where our named volume is going to be mounted. For example, `/chroma/my_db`. Note: you **cannot** set this variable as simply `/chroma/` or any such variation, as Docker will throw an error upon running the containers.
+The `chromadb/chroma:latest` Docker image hardcodes its persist path to `/data` via the container's `CMD` (`chroma run --path /data ...`). That CLI flag wins over any env var, so the server *always* writes to `/data` regardless of what you set in `.env`.
 
-Then, in your `docker-compose.yml` file, set the ChromaDB service as follows:
+To make sure your embeddings survive a `docker compose down`, the named volume `chroma_persist_storage` must be mounted at that exact path. We use the `PERSIST_DIRECTORY` variable as a Docker Compose substitution knob (not as a Chroma server config), so it must be set to `/data` in `.env`:
 
-```docker
+```bash
+PERSIST_DIRECTORY=/data
+```
+
+`docker-compose.yml` then references it in the chromadb service:
+
+```yaml
 chromadb:
     container_name: chromadb
     image: chromadb/chroma:latest
     volumes:
-      - index_data:/chroma/.chroma/index
       - chroma_persist_storage:${PERSIST_DIRECTORY}
     ports:
       - "8000:8000"
@@ -109,4 +114,6 @@ chromadb:
       - ./.env
 ```
 
-This will automatically create a named volume called `your-app-name_chroma_persist_storage` on your first `up`, and that's where your embeddings are going to live.
+This creates a named volume called `<project_name>_chroma_persist_storage` on first `up` and mounts it at `/data` inside the ChromaDB container — which is where Chroma actually writes `chroma.sqlite3` plus the per-collection HNSW segment directories.
+
+> ⚠️ Setting `PERSIST_DIRECTORY` to anything other than `/data` will cause your data to land in the container's ephemeral writable layer instead of the named volume, and you will lose it the moment the container is removed. The variable used to be configurable in older Chroma versions; it no longer is.
