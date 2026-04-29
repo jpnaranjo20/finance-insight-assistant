@@ -3,10 +3,11 @@ import time
 from chromadb import HttpClient
 from chromadb.config import Settings
 from dotenv import find_dotenv, load_dotenv
-from langchain_huggingface import HuggingFaceEmbeddings
 
 from langchain_openai import ChatOpenAI
 from langchain_chroma import Chroma
+
+from app.embeddings import get_embeddings
 from langchain.schema import StrOutputParser
 from langchain.prompts import ChatPromptTemplate
 
@@ -25,15 +26,9 @@ CHROMA_HOST = str(os.getenv("CHROMADB_HOST")) # This has to be the name of the s
 CHROMA_PORT = int(os.getenv("CHROMADB_PORT"))
 COLLECTION_NAME = str(os.getenv("COLLECTION_NAME"))
 
-# Declare the embedding function
-model_name = "sentence-transformers/all-MiniLM-L6-v2"
-model_kwargs = {"device": "cpu"}
-encode_kwargs = {"normalize_embeddings": False}
-embeddings_model = HuggingFaceEmbeddings(
-    model_name=model_name,
-    model_kwargs=model_kwargs,
-    encode_kwargs=encode_kwargs
-)
+# Reader and writer share one factory (api/app/embeddings.py) so a single
+# EMBEDDING_PROVIDER env var keeps them in lockstep.
+embeddings_model = get_embeddings()
 
 system_template ="""
 

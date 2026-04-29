@@ -1,12 +1,13 @@
 import os
 import time
 import openai
-import chromadb.utils.embedding_functions as ef
 from chromadb import HttpClient
 from chromadb.config import Settings
 from chromadb.api.models.Collection import Collection
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_text_splitters import MarkdownHeaderTextSplitter
+
+from embeddings import get_embeddings
 
 # Load environment variables
 CHROMA_HOST = str(os.getenv("CHROMADB_HOST")) # This has to be the name of the service in the docker-compose file
@@ -18,15 +19,19 @@ DATASET_MD_PATH = os.getenv("DATASET_MD_DIRECTORY")
 os.makedirs(DATASET_ROOT_PATH, exist_ok=True)
 os.makedirs(DATASET_MD_PATH, exist_ok=True)
 
-# Declare the embedding function
-embeddings_model =  ef.DefaultEmbeddingFunction()
+# Embedding provider is selected via EMBEDDING_PROVIDER (default: chroma_default).
+# We compute embeddings explicitly in Python so the reader (api/) and writer
+# (this script) share one factory and the env var controls both sides.
+embedder = get_embeddings()
 
-# Define ChromaDB collection (if no embedding function is passed, the default one is used)
+# Define ChromaDB collection. We do NOT attach an embedding_function to the
+# collection — embeddings are always supplied explicitly to upsert(), making
+# `embedder` the single source of truth for vector generation.
 while True:
     try:
         # Initialize the ChromaDB client
         chroma_client = HttpClient(host=CHROMA_HOST, port=CHROMA_PORT, settings=Settings(allow_reset=True, anonymized_telemetry=False))
-        collection = chroma_client.get_or_create_collection(name=COLLECTION_NAME, embedding_function=embeddings_model)
+        collection = chroma_client.get_or_create_collection(name=COLLECTION_NAME)
         break
     except Exception as e:
         print("Error reading collection from ChromaDB: ", e)
@@ -179,8 +184,9 @@ def populate_chroma():
     s = time.time()
     
     def upsert_with_retry(collection: Collection, chunk_ids: list, chunk_docs: list, chunk_metadata: list, start: int, end: int, max_retries=5):
-        """
-        Attempts to upsert a batch of documents into a collection with retry logic on rate limit errors.
+        """Upsert one batch with explicit embeddings (computed via the shared
+        factory) and exponential backoff on OpenAI rate-limit errors.
+
         Args:
             collection (Collection): The collection to upsert documents into.
             chunk_ids (list): List of document IDs.
@@ -193,14 +199,17 @@ def populate_chroma():
             openai.error.RateLimitError: If the rate limit is exceeded and retries are exhausted.
             Exception: For any other errors encountered during the upsert process.
         """
-        
+
         retries = 0
         while retries < max_retries:
             try:
+                batch_docs = chunk_docs[start:end]
+                batch_embeddings = embedder.embed_documents(batch_docs)
                 collection.upsert(
                     ids=chunk_ids[start:end],
-                    documents=chunk_docs[start:end],
-                    metadatas=chunk_metadata[start:end]
+                    documents=batch_docs,
+                    metadatas=chunk_metadata[start:end],
+                    embeddings=batch_embeddings,
                 )
                 print(f"Batch {start//BATCH_SIZE + 1} added to ChromaDB.")
                 break
