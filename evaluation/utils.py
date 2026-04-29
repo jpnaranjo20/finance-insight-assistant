@@ -8,8 +8,8 @@ logger = logging.getLogger(__name__)
 
 def get_response(query: str) -> Dict[str, Any]:
     """
-    Llama a la API de Chroma (p.ej. http://localhost:8002/chatbot)
-    y retorna un diccionario con 'llm_response' y 'retrieved_docs'.
+    Call the Chroma API (p.ej. http://localhost:8002/chatbot)
+    and return a dictionary with 'llm_response' and 'retrieved_docs'.
     """
     try:
         api_url = "http://localhost:8002/chatbot"
@@ -22,8 +22,8 @@ def get_response(query: str) -> Dict[str, Any]:
         return data
     
     except Exception as e:
-        logger.error(f"Error llamando a la API de Chroma: {e}", exc_info=True)
+        logger.error(f"Error calling Chroma API: {e}", exc_info=True)
         return {
-            "llm_response": f"Ocurrió un error consultando a Chroma: {str(e)}",
+            "llm_response": f"An error ocurred consulting Chroma: {str(e)}",
             "retrieved_docs": []
         }
