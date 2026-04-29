@@ -12,7 +12,10 @@ from langchain.tools import StructuredTool
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
-from twilio.twiml.messaging_response import MessagingResponse
+
+ENABLE_WHATSAPP = os.getenv("ENABLE_WHATSAPP", "0") == "1"
+if ENABLE_WHATSAPP:
+    from twilio.twiml.messaging_response import MessagingResponse
 
 
 logging.basicConfig(level=logging.DEBUG)
@@ -284,9 +287,13 @@ async def chat_endpoint(request: ChatRequest):
         raise HTTPException(status_code=400, detail="No user messages found.")
     
     try:
+        thread_id = (
+            (request.config or {}).get("configurable", {}).get("thread_id")
+            or str(uuid.uuid4())
+        )
         result = graph_builder.invoke(
             {"messages": messages_list},
-            config={"configurable": {"thread_id": str(uuid.uuid4())}}
+            config={"configurable": {"thread_id": thread_id}}
         )
         final_message = result["messages"][-1].content
         return {"response": final_message}
@@ -295,33 +302,34 @@ async def chat_endpoint(request: ChatRequest):
         raise HTTPException(status_code=500, detail="Internal Server Error")
     
 
-@app.post("/whatsapp")
-async def whatsapp_webhook(request: Request) -> Response:
-    """
-    Endpoint to handle incoming WhatsApp messages via Twilio.
-    """
-    form_data = await request.form()
-    from_number = form_data.get("From")
-    user_message = form_data.get("Body")
+if ENABLE_WHATSAPP:
+    @app.post("/whatsapp")
+    async def whatsapp_webhook(request: Request) -> Response:
+        """
+        Endpoint to handle incoming WhatsApp messages via Twilio.
+        """
+        form_data = await request.form()
+        from_number = form_data.get("From")
+        user_message = form_data.get("Body")
 
-    if not from_number or not user_message:
-        resp = MessagingResponse()
-        resp.message("I did not receive your number or message. Please try again.")
-        return Response(content=str(resp), media_type="application/xml")
+        if not from_number or not user_message:
+            resp = MessagingResponse()
+            resp.message("I did not receive your number or message. Please try again.")
+            return Response(content=str(resp), media_type="application/xml")
 
-    if from_number not in SESSIONS:
-        SESSIONS[from_number] = {"messages": []}
+        if from_number not in SESSIONS:
+            SESSIONS[from_number] = {"messages": []}
 
-    SESSIONS[from_number]["messages"].append({"role": "user", "content": user_message})
+        SESSIONS[from_number]["messages"].append({"role": "user", "content": user_message})
 
-    response = graph_builder.invoke(
-        {"messages": SESSIONS[from_number]["messages"]},
-        config={"configurable": {"thread_id": str(uuid.uuid4())}}
-    )
+        response = graph_builder.invoke(
+            {"messages": SESSIONS[from_number]["messages"]},
+            config={"configurable": {"thread_id": from_number}}
+        )
 
-    llm_msg = response["messages"][-1].content
-    SESSIONS[from_number]["messages"].append({"role": "assistant", "content": llm_msg})
+        llm_msg = response["messages"][-1].content
+        SESSIONS[from_number]["messages"].append({"role": "assistant", "content": llm_msg})
 
-    twilio_resp = MessagingResponse()
-    twilio_resp.message(llm_msg)
-    return Response(content=str(twilio_resp), media_type="application/xml")
+        twilio_resp = MessagingResponse()
+        twilio_resp.message(llm_msg)
+        return Response(content=str(twilio_resp), media_type="application/xml")
