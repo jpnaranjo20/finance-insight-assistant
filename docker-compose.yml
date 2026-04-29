@@ -49,5 +49,15 @@ services:
         env_file:
             - ./backend-api/.env
 
+    eval_dashboard:
+        container_name: eval_dashboard
+        build: ./eval-dashboard
+        ports:
+            - "8502:8502"
+        env_file:
+            - ./eval-dashboard/.env
+        depends_on:
+            - api
+
 volumes:
     chroma_persist_storage:
