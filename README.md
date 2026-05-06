@@ -1,24 +1,25 @@
-# Financial Advisor Chatbot
+# Finance Insight Assistant
 
 ## Overview
 
-The Financial Advisor Chatbot is a project designed to provide users with quick and accurate answers to their questions related to public companies listed on NASDAQ. The chatbot leverages advanced technologies in finance and AI, including LangChain, FastAPI, and ChromaDB, to deliver a seamless user experience.
+The Finance Insight Assistant is a project designed to provide users with quick and accurate answers to their questions related to public companies listed on NASDAQ. It combines a Retrieval-Augmented Generation (RAG) pipeline over a corpus of financial PDFs with live market data tools (Yahoo Finance), orchestrated by a LangGraph ReAct agent over GPT-4o-mini. Users interact with it through a Streamlit chat UI. The stack is built on LangChain / LangGraph, FastAPI, ChromaDB, and Streamlit, and ships with a built-in RAGAS evaluation dashboard.
 
 ## Project Structure
 
 The project is organized into several components:
 
-- **api**: Contains the FastAPI application, including API endpoints, services, database models, and utility functions.
-- **front-chat**: Contains the user interface for interacting with the chatbot.
-- **backend-api**: Contains the backend of the application.
-- **populate_chroma**: Contains the required configuration and Docker setup scripts to populate the ChromaDB database.
-- **preprocess**: Contains the configuration and required script to preprocess PDF inputs into Markdown files.
+- **api**: FastAPI service exposing the RAG endpoint (`POST /chatbot`) that performs similarity search over ChromaDB and returns an LLM-generated answer plus retrieved sources.
+- **backend-api**: FastAPI service hosting the LangGraph ReAct agent. Routes user questions to the RAG service, Yahoo Finance tools, or direct answers, and exposes `POST /chat` for the web UI.
+- **front-chat**: Streamlit user interface for interacting with the assistant, including username/password login.
+- **populate_chroma**: One-shot service that reads preprocessed Markdown files and populates the ChromaDB vector database. Idempotent — already-ingested files are skipped.
+- **preprocess**: Configuration and script (`preprocess.sh`) that converts PDF inputs into Markdown via `docling`.
+- **eval-dashboard**: Streamlit dashboard that runs RAGAS metrics (Context Recall, Faithfulness, Factual Correctness) over a curated 22-question financial Q&A benchmark and visualizes per-question and aggregate scores.
 
 ## Additional files and directories
 
 - **EDA.ipynb**: This file contains an Exploratory Data Analysis (EDA). This notebook is used to analyze and visualize the dataset, providing insights and understanding of the data before it is processed and used by the application. It includes various data analysis techniques and visualizations to help identify patterns, trends, and anomalies in the data.
 
-- **evaluation**: This directory contains a notebook called `Evaluations.ipynb` to perform model evaluation of the LLM application within this project. Requires the initialization of a virtual environment and running `pip install -r requirements.txt` within this directory to successfully run the notebook.
+- **evaluation**: This directory contains a notebook called `Evaluations.ipynb` to perform model evaluation of the LLM application within this project. Requires the initialization of a virtual environment and running `pip install -r requirements.txt` within this directory to successfully run the notebook. For an interactive, in-browser alternative, see the `eval-dashboard` service described above (available at `http://localhost:8502` once the stack is running).
 
 ## Setup Instructions
 
@@ -34,7 +35,7 @@ The project is organized into several components:
 
    ```git
    git clone <repository-url>
-   cd financial-advisor-chatbot
+   cd finance-insight-assistant
    ```
 
 2. Create the `.env` file from `.env.original`. Standing on the project's root, run
@@ -45,7 +46,7 @@ The project is organized into several components:
 
 3. Set the value of the `OPENAI_API_KEY` variable inside your newly created `.env` file.
 
-4. Repeat steps 2 and 3 for the `.env.original` files found in the `front-chat` and `backend-api` directories, respectively.
+4. Repeat steps 2 and 3 for the `.env.original` files found in the `front-chat`, `backend-api`, and `eval-dashboard` directories, respectively.
 
 5. You need to place the `dataset/` directory within the `preprocess/` folder. The `dataset/` directory must contain all of the PDFs you wish to use for population of the Chroma vector database.
 
@@ -83,12 +84,20 @@ The project is organized into several components:
 
 2. Access the frontend application at `http://localhost:8501`.
 
-3. The FastAPI backend can be accessed at `http://localhost:8002/docs` for API documentation.
+3. The agent service (LangGraph ReAct agent — `POST /chat`) is available at `http://localhost:8001/docs`.
+
+4. The RAG service (`POST /chatbot`) is available at `http://localhost:8002/docs`.
+
+5. The RAG evaluation dashboard is available at `http://localhost:8502`.
+
+6. The ChromaDB API is exposed at `http://localhost:8000`.
 
 ## Usage
 
-- Users can interact with the chatbot through the frontend interface, asking questions related to NASDAQ companies.
-- The backend processes these queries, retrieves relevant information from the vector database, and generates responses using LangChain.
+- Users can interact with the assistant through the Streamlit frontend, asking questions related to NASDAQ-listed companies.
+- The LangGraph ReAct agent in `backend-api` decides per-turn whether to call the RAG service for document-grounded answers, the Yahoo Finance tools (`get_stock_price`, `get_financial_info`) for live market data, or to answer directly.
+- Retrieval-augmented answers are generated by the `api` service over a ChromaDB collection populated from the corpus of financial PDFs.
+- Retrieval and answer quality can be measured at any time from the `eval-dashboard` service.
 
 ## Note: ChromaDB persistence and the `PERSIST_DIRECTORY` variable
 

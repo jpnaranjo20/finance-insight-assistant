@@ -137,7 +137,7 @@ prompt_template = ChatPromptTemplate.from_template(system_template)
 # Main endpoint
 @app.get("/")
 async def index():
-    return {"message": "Welcome to the Financial Advisor Chatbot!"}
+    return {"message": "Welcome to the Finance Insight Assistant!"}
 
 # Endpoint to retrieve a response from the chatbot
 @app.post("/chatbot")
