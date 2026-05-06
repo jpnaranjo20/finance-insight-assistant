@@ -25,6 +25,10 @@ st.set_page_config(
 
 load_dotenv()
 
+# Streamlit renders `$...$` as LaTeX math, mangling dollar amounts in answers.
+def _safe(text) -> str:
+    return text.replace("$", "\\$") if isinstance(text, str) else text
+
 ALL_METRICS = ["LLMContextRecall", "Faithfulness", "FactualCorrectness"]
 METRIC_LABELS = {
     "LLMContextRecall": "Context Recall",
@@ -194,18 +198,18 @@ if "last_result" in st.session_state:
             cols = st.columns(2)
             with cols[0]:
                 st.markdown("**Generated answer**")
-                st.write(row.get("response") or "_(empty)_")
+                st.write(_safe(row.get("response")) or "_(empty)_")
                 st.caption(f"Sources: {row.get('sources') or '—'}")
             with cols[1]:
                 st.markdown("**Reference answer**")
-                st.write(row.get("reference") or "_(empty)_")
+                st.write(_safe(row.get("reference")) or "_(empty)_")
 
             ctxs = row.get("retrieved_contexts")
             if isinstance(ctxs, list) and ctxs:
                 st.markdown("**Retrieved chunks**")
                 for j, ctx in enumerate(ctxs):
                     st.caption(f"Chunk {j+1}")
-                    st.write(ctx[:600] + ("…" if len(ctx) > 600 else ""))
+                    st.write(_safe(ctx[:600] + ("…" if len(ctx) > 600 else "")))
 
     # Download
     csv = df.to_csv(index=False).encode("utf-8")

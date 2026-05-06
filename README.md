@@ -1,5 +1,7 @@
 # Finance Insight Assistant
 
+![Finance Insight Assistant chat UI](images/front-end.png)
+
 ## Overview
 
 The Finance Insight Assistant is a project designed to provide users with quick and accurate answers to their questions related to public companies listed on NASDAQ. It combines a Retrieval-Augmented Generation (RAG) pipeline over a corpus of financial PDFs with live market data tools (Yahoo Finance), orchestrated by a LangGraph ReAct agent over GPT-4o-mini. Users interact with it through a Streamlit chat UI. The stack is built on LangChain / LangGraph, FastAPI, ChromaDB, and Streamlit, and ships with a built-in RAGAS evaluation dashboard.
@@ -20,6 +22,8 @@ The project is organized into several components:
 - **EDA.ipynb**: This file contains an Exploratory Data Analysis (EDA). This notebook is used to analyze and visualize the dataset, providing insights and understanding of the data before it is processed and used by the application. It includes various data analysis techniques and visualizations to help identify patterns, trends, and anomalies in the data.
 
 - **evaluation**: This directory contains a notebook called `Evaluations.ipynb` to perform model evaluation of the LLM application within this project. Requires the initialization of a virtual environment and running `pip install -r requirements.txt` within this directory to successfully run the notebook. For an interactive, in-browser alternative, see the `eval-dashboard` service described above (available at `http://localhost:8502` once the stack is running).
+
+![RAG Evaluation Dashboard](images/eval-dashboard.png)
 
 ## Setup Instructions
 
