@@ -2,10 +2,10 @@
 FROM python:3.11-slim
 
 # Copy application files
-COPY . /populate_chroma
+COPY . /ingest
 
 # Set the working directory
-WORKDIR /populate_chroma
+WORKDIR /ingest
 
 RUN apt-get update && \
 	apt-get clean
@@ -14,4 +14,4 @@ RUN apt-get update && \
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # Run the script
-CMD ["python", "populate_chroma.py"]
+CMD ["python", "ingest.py"]

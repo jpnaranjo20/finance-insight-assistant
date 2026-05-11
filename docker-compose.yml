@@ -9,15 +9,33 @@ services:
         env_file:
             - ./.env
 
-    populate_chroma:
-        container_name: populate_chroma
+    elasticsearch:
+        container_name: elasticsearch
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+        environment:
+            - discovery.type=single-node
+            - xpack.security.enabled=false
+            - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+        volumes:
+            - es_persist_storage:/usr/share/elasticsearch/data
+        ports:
+            - "9200:9200"
+        healthcheck:
+            test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
+            interval: 10s
+            timeout: 5s
+            retries: 10
+
+    ingest:
+        container_name: ingest
         build:
-            context: ./populate_chroma
-            dockerfile: Dockerfile.populate
+            context: ./ingest
+            dockerfile: Dockerfile.ingest
         depends_on:
             - chromadb
+            - elasticsearch
         volumes:
-            - ./seed_data:/populate_chroma/dataset_md
+            - ./seed_data:/ingest/dataset_md
         env_file:
             - ./.env
 
@@ -28,6 +46,7 @@ services:
             dockerfile: Dockerfile
         depends_on:
             - chromadb
+            - elasticsearch
         ports:
             - '8002:80' # Expose the API on port 8002 of the host machine
         env_file:
@@ -61,3 +80,4 @@ services:
 
 volumes:
     chroma_persist_storage:
+    es_persist_storage:

@@ -1,6 +1,7 @@
 # Pinned 2026-04-29 — full freeze from running container for reproducible builds.
 # Direct deps requested by this service:
-#   fastapi[standard], pydantic, chromadb, langchain, langchain_openai, langchain_chroma
+#   fastapi[standard], pydantic, chromadb, langchain, langchain_openai, langchain_chroma, elasticsearch[async]
+elasticsearch[async]>=8.0.0,<9.0.0
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.13.0

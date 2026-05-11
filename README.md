@@ -4,16 +4,16 @@
 
 ## Overview
 
-The Finance Insight Assistant is a project designed to provide users with quick and accurate answers to their questions related to public companies listed on NASDAQ. It combines a Retrieval-Augmented Generation (RAG) pipeline over a corpus of financial PDFs with live market data tools (Yahoo Finance), orchestrated by a LangGraph ReAct agent over GPT-4o-mini. Users interact with it through a Streamlit chat UI. The stack is built on LangChain / LangGraph, FastAPI, ChromaDB, and Streamlit, and ships with a built-in RAGAS evaluation dashboard.
+The Finance Insight Assistant is a project designed to provide users with quick and accurate answers to their questions related to public companies listed on NASDAQ. It combines a **hybrid RAG pipeline** (dense vector search via ChromaDB + BM25 keyword search via Elasticsearch, fused with Reciprocal Rank Fusion) over a corpus of financial PDFs with live market data tools (Yahoo Finance), orchestrated by a LangGraph ReAct agent over GPT-4o-mini. Users interact with it through a Streamlit chat UI. The stack is built on LangChain / LangGraph, FastAPI, ChromaDB, Elasticsearch, and Streamlit, and ships with a built-in RAGAS evaluation dashboard.
 
 ## Project Structure
 
 The project is organized into several components:
 
-- **api**: FastAPI service exposing the RAG endpoint (`POST /chatbot`) that performs similarity search over ChromaDB and returns an LLM-generated answer plus retrieved sources.
+- **api**: FastAPI service exposing the RAG endpoint (`POST /chatbot`). Runs hybrid retrieval — dense similarity search over ChromaDB and BM25 keyword search over Elasticsearch — then fuses both ranked lists with Reciprocal Rank Fusion (RRF) before passing context to the LLM.
 - **backend-api**: FastAPI service hosting the LangGraph ReAct agent. Routes user questions to the RAG service, Yahoo Finance tools, or direct answers, and exposes `POST /chat` for the web UI.
 - **front-chat**: Streamlit user interface for interacting with the assistant, including username/password login.
-- **populate_chroma**: One-shot service that reads preprocessed Markdown files and populates the ChromaDB vector database. Idempotent — already-ingested files are skipped.
+- **ingest**: One-shot service that reads preprocessed Markdown files and populates ChromaDB and/or Elasticsearch. Controlled by `POPULATE_TARGET` (`chroma`, `elasticsearch`, `both`, or `none`). Idempotent — already-ingested files are skipped.
 - **preprocess**: Configuration and script (`preprocess.sh`) that converts PDF inputs into Markdown via `docling`.
 - **eval-dashboard**: Streamlit dashboard that runs RAGAS metrics (Context Recall, Faithfulness, Factual Correctness) over a curated 22-question financial Q&A benchmark and visualizes per-question and aggregate scores.
 
@@ -56,23 +56,29 @@ The project is organized into several components:
 
 6. Run the `preprocess.sh` bash script. This script will convert all newly added PDFs to the `dataset/` directory to markdown format and store them inside a pre-defined docker volume that the overall app already has access to.
 
-7. When the previous script is done running, run the app with
+7. When the previous script is done running, populate **ChromaDB** first. In your root `.env`, set `POPULATE_TARGET=chroma`, then run:
 
     ```shell
-     docker-compose up --build -d populate_chroma
+    docker-compose up --build -d ingest
     ```
 
-   This will populate the vector database using the generated markdown files inside the `populate_chroma` container.
+   This will embed and index all Markdown files into ChromaDB. It can take a while depending on the number of PDFs.
 
-8. Once the `populate_chroma` container finishes execution (it can take quite a while, depending on the amount of new PDFs in the `dataset/` directory), the application is ready to go, as the vector database is now populated with the new document embeddings.
+8. Once the `ingest` container finishes, populate **Elasticsearch**. Change `POPULATE_TARGET=elasticsearch` in your root `.env`, then run:
 
-9. Stop the current `docker-compose` execution by running
+    ```shell
+    docker-compose up --build -d ingest
+    ```
+
+9. Reset `POPULATE_TARGET=none` in your root `.env` so that the `ingest` container is a no-op on future `docker-compose up` calls.
+
+10. Stop the current `docker-compose` execution:
 
     ```shell
     docker-compose down
     ```
 
-10. You can now run the application with
+11. You can now run the full application:
 
     ```shell
     docker-compose up --build -d
@@ -96,11 +102,13 @@ The project is organized into several components:
 
 6. The ChromaDB API is exposed at `http://localhost:8000`.
 
+7. The Elasticsearch API is exposed at `http://localhost:9200`.
+
 ## Usage
 
 - Users can interact with the assistant through the Streamlit frontend, asking questions related to NASDAQ-listed companies.
 - The LangGraph ReAct agent in `backend-api` decides per-turn whether to call the RAG service for document-grounded answers, the Yahoo Finance tools (`get_stock_price`, `get_financial_info`) for live market data, or to answer directly.
-- Retrieval-augmented answers are generated by the `api` service over a ChromaDB collection populated from the corpus of financial PDFs.
+- Retrieval-augmented answers are generated by the `api` service using hybrid retrieval: dense vector search over ChromaDB and BM25 keyword search over Elasticsearch, fused with Reciprocal Rank Fusion. This improves retrieval of exact financial terms, figures, and dates compared to dense-only search.
 - Retrieval and answer quality can be measured at any time from the `eval-dashboard` service.
 
 ## Note: ChromaDB persistence and the `PERSIST_DIRECTORY` variable

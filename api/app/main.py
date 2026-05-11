@@ -8,6 +8,7 @@ from langchain_openai import ChatOpenAI
 from langchain_chroma import Chroma
 
 from app.embeddings import get_embeddings
+from app.hybrid_retrieval import hybrid_retrieve
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -144,14 +145,11 @@ async def index():
 async def chatbot_response(request: ChatRequest):
     question = request.question
     
-    # Define the retriever
-    retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={'k': 10})
-    
     # Create a basic chain
     chain = prompt_template | model | StrOutputParser()
-    
-    # Retrieve documents using the retriever
-    retrieved_docs = await retriever.ainvoke(question)
+
+    # Retrieve documents using hybrid (dense + BM25) retrieval with RRF fusion
+    retrieved_docs = await hybrid_retrieve(vector_store, question, k=10)
     
     # Log the retrieved documents
     for doc in retrieved_docs:
