@@ -74,7 +74,7 @@ def call_chat_api(messages, thread_id):
                 }
             }
         }
-        response = requests.post(f"{BACKEND_API_URL}/chat", json=payload, timeout=30)
+        response = requests.post(f"{BACKEND_API_URL}/chat", json=payload, timeout=120)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
@@ -177,6 +177,11 @@ if not st.session_state["messages"]:
             st.rerun()
 
 for msg in st.session_state["messages"]:
+    if msg.get("plot_data"):
+        try:
+            st.plotly_chart(go.Figure(msg["plot_data"]), use_container_width=True)
+        except Exception as e:
+            logger.error(f"Error rendering chart from history: {e}")
     _render_message(msg["role"], msg["content"])
 
 # Small toolbar above the input, only when there's a conversation to clear
@@ -195,7 +200,10 @@ if prompt:
 
     if response and "response" in response:
         formatted_response = response["response"]
-        st.session_state["messages"].append({"role": "assistant", "content": formatted_response})
+        assistant_msg = {"role": "assistant", "content": formatted_response}
+        if response.get("has_plot"):
+            assistant_msg["plot_data"] = response["plot_data"]
+        st.session_state["messages"].append(assistant_msg)
 
         if response.get("has_plot"):
             try:
