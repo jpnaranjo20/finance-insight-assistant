@@ -7,7 +7,9 @@ from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, EmailStr
 import yfinance as yf  # Make sure you have the yfinance library installed
 
-from langchain_core.messages import AIMessage, HumanMessage
+import json
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from app.tools.chart_tools import generate_chart, ChartQuery
 from langchain.tools import StructuredTool
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
@@ -223,6 +225,25 @@ financial_info_tool = StructuredTool.from_function(
     args_schema=FinancialInfoQuery,
     return_direct=True
 )
+
+# ==================================================
+# TOOL to generate inline stock charts
+# ==================================================
+
+chart_tool = StructuredTool.from_function(
+    func=generate_chart,
+    name="generate_chart",
+    description=(
+        "Generates an interactive stock chart and returns it for display in the UI. "
+        "Use chart_type='price_history' for a single stock's close price over time, "
+        "'comparison' to compare multiple stocks' percentage performance side by side, "
+        "or 'metrics' for a bar chart of key financial metrics (P/E, EPS, Beta, etc.). "
+        "Call this tool whenever the user asks for a chart, graph, plot, or visual of stock data."
+    ),
+    args_schema=ChartQuery,
+    return_direct=False,
+)
+
 # ==================================================
 # LLM AND AGENT CONFIGURATION
 # ==================================================
@@ -232,7 +253,7 @@ llm = ChatOpenAI(
     temperature=0,
 )
 
-llm = llm.bind_tools([chroma_tool, stock_price_tool, financial_info_tool], tool_choice="auto")
+llm = llm.bind_tools([chroma_tool, stock_price_tool, financial_info_tool, chart_tool], tool_choice="auto")
 
 PROMPT_SYSTEM = """
 You are a virtual financial assistant specializing in answering questions about finance, investments, and stock markets in English.
@@ -245,6 +266,7 @@ You can access the following tools to improve the accuracy of your responses:
         and then generate a comprehensive answer based on additional data (include "Internet Search" as a source).
 2.	get_stock_price: To retrieve the current stock price from Yahoo Finance.
 3.	get_financial_info: To obtain detailed financial information about a company using Yahoo Finance.
+4.	generate_chart: To generate an interactive chart displayed inline in the UI. Use this whenever the user asks for a chart, graph, visual, or says "show me" in the context of stock data. Supported chart types: 'price_history' (single stock price over time), 'comparison' (normalised % performance of multiple stocks), 'metrics' (financial metrics bar chart). After calling this tool, describe the chart briefly in your text response.
 
 Response Instructions:
 - Provide clear, precise, and structured responses.
@@ -309,7 +331,7 @@ Ideal Response Format:
 # Create the agent with the tools
 graph_builder = create_react_agent(
     llm,
-    tools=[chroma_tool, stock_price_tool, financial_info_tool],
+    tools=[chroma_tool, stock_price_tool, financial_info_tool, chart_tool],
     prompt=PROMPT_SYSTEM,
     checkpointer=MemorySaver()
 )
@@ -342,7 +364,24 @@ async def chat_endpoint(request: ChatRequest):
             config={"configurable": {"thread_id": thread_id}}
         )
         final_message = result["messages"][-1].content
-        return {"response": final_message}
+
+        # Scan messages in reverse for the last generate_chart tool result
+        plot_data = None
+        for msg in reversed(result["messages"]):
+            if isinstance(msg, ToolMessage):
+                try:
+                    tool_result = json.loads(msg.content)
+                    if isinstance(tool_result, dict) and "plot_data" in tool_result:
+                        plot_data = tool_result["plot_data"]
+                        break
+                except (json.JSONDecodeError, TypeError, AttributeError):
+                    pass
+
+        response_payload = {"response": final_message}
+        if plot_data is not None:
+            response_payload["has_plot"] = True
+            response_payload["plot_data"] = plot_data
+        return response_payload
     except Exception as e:
         logger.error(f"Error invoking the agent: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal Server Error")
