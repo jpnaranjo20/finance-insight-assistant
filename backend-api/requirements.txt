@@ -2,7 +2,8 @@
 # Python 3.11.
 # Direct deps requested by this service:
 #   fastapi, uvicorn, python-dotenv, pydantic, requests, yfinance,
-#   langchain, langchain-openai, langgraph, twilio, python-multipart
+#   langchain, langchain-openai, langgraph, twilio, python-multipart, plotly
+plotly>=5.0.0
 aiohappyeyeballs==2.6.1
 aiohttp==3.13.5
 aiohttp-retry==2.9.1
