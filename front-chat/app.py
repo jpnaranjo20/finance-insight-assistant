@@ -156,7 +156,7 @@ EXAMPLE_PROMPTS = [
     "What were Apple's results in 2021?",
     "Current stock price of NVDA",
     "What was Adobe's revenue growth in 2020?",
-    "Compare Tesla's and Rivian's performance over 90 days"
+    "Show me Microsoft's financial metrics"
 ]
 
 # Resolve the prompt for this run BEFORE deciding whether to render the
