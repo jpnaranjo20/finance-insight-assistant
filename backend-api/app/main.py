@@ -8,8 +8,9 @@ from pydantic import BaseModel, EmailStr
 import yfinance as yf  # Make sure you have the yfinance library installed
 
 import json
+import re
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from app.tools.chart_tools import generate_chart, ChartQuery
+from app.tools.chart_tools import generate_chart, ChartQuery, _pending_charts
 from langchain.tools import StructuredTool
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
@@ -365,17 +366,15 @@ async def chat_endpoint(request: ChatRequest):
         )
         final_message = result["messages"][-1].content
 
-        # Scan messages in reverse for the last generate_chart tool result
+        # Scan messages in reverse for a generate_chart result and retrieve
+        # its data from _pending_charts (chart data never enters LLM context)
         plot_data = None
         for msg in reversed(result["messages"]):
             if isinstance(msg, ToolMessage) and msg.name == "generate_chart":
-                try:
-                    tool_result = json.loads(msg.content)
-                    if isinstance(tool_result, dict) and "plot_data" in tool_result:
-                        plot_data = tool_result["plot_data"]
-                        break
-                except (json.JSONDecodeError, TypeError, AttributeError):
-                    pass
+                m = re.search(r'\[chart:([a-f0-9]+)\]', msg.content)
+                if m:
+                    plot_data = _pending_charts.pop(m.group(1), None)
+                break
 
         response_payload = {"response": final_message}
         if plot_data is not None:

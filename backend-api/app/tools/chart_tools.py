@@ -1,10 +1,15 @@
 import json
+import uuid
 from typing import Literal
 
 import pandas as pd
 import plotly.graph_objects as go
 import yfinance as yf
 from pydantic import BaseModel, Field
+
+# Chart data stored here so the full Plotly JSON never enters the LLM context.
+# The backend reads from this dict using the ID embedded in the tool message.
+_pending_charts: dict = {}
 
 
 class ChartQuery(BaseModel):
@@ -141,6 +146,8 @@ def generate_chart(tickers: str, chart_type: str, period: str = "30d") -> str:
                 "Use 'price_history', 'comparison', or 'metrics'."
             )
 
-        return json.dumps({"plot_data": plot_data, "description": description})
+        chart_id = uuid.uuid4().hex[:8]
+        _pending_charts[chart_id] = plot_data
+        return f"Chart generated [chart:{chart_id}]: {description} It will be displayed to the user automatically."
     except Exception as e:
         return f"Could not generate chart: {str(e)}"
