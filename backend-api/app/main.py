@@ -368,7 +368,7 @@ async def chat_endpoint(request: ChatRequest):
         # Scan messages in reverse for the last generate_chart tool result
         plot_data = None
         for msg in reversed(result["messages"]):
-            if isinstance(msg, ToolMessage):
+            if isinstance(msg, ToolMessage) and msg.name == "generate_chart":
                 try:
                     tool_result = json.loads(msg.content)
                     if isinstance(tool_result, dict) and "plot_data" in tool_result:

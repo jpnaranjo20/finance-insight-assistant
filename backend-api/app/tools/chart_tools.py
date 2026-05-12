@@ -12,7 +12,7 @@ class ChartQuery(BaseModel):
         ...,
         description="Comma-separated ticker symbols, e.g. 'AAPL' or 'AAPL,MSFT,GOOGL'",
     )
-    chart_type: str = Field(
+    chart_type: Literal["price_history", "comparison", "metrics"] = Field(
         ...,
         description="Chart type: 'price_history' (single stock close price), "
                     "'comparison' (multi-stock % change), or 'metrics' (financial metrics bar chart)",
