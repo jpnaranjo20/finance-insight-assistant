@@ -196,17 +196,17 @@ if prompt:
     if response and "response" in response:
         formatted_response = response["response"]
         st.session_state["messages"].append({"role": "assistant", "content": formatted_response})
-        _render_message("assistant", formatted_response)
-        _persist_state()
 
-        # Optional: If there is plot data in the response, display it
         if response.get("has_plot"):
             try:
                 fig = go.Figure(response["plot_data"])
-                st.plotly_chart(fig)
+                st.plotly_chart(fig, use_container_width=True)
             except Exception as e:
                 logger.error(f"Error displaying graph: {e}")
                 st.error(f"Error displaying graph: {str(e)}")
+
+        _render_message("assistant", formatted_response)
+        _persist_state()
 
 # ===================== Footer =====================
 st.markdown("---")
