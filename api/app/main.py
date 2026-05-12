@@ -1,5 +1,6 @@
 import os
 import time
+from typing import Literal
 from chromadb import HttpClient
 from chromadb.config import Settings
 from dotenv import find_dotenv, load_dotenv
@@ -8,7 +9,7 @@ from langchain_openai import ChatOpenAI
 from langchain_chroma import Chroma
 
 from app.embeddings import get_embeddings
-from app.hybrid_retrieval import hybrid_retrieve
+from app.hybrid_retrieval import hybrid_retrieve, dense_retrieve, sparse_retrieve
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -21,6 +22,9 @@ app = FastAPI()
 # Declare a request class
 class ChatRequest(BaseModel):
     question: str = Field(..., title="The user's question")
+    retrieval_mode: Literal["hybrid", "dense", "sparse"] = Field(
+        "hybrid", title="Retrieval mode"
+    )
 
 # Load environment variables
 CHROMA_HOST = str(os.getenv("CHROMADB_HOST")) # This has to be the name of the service in the docker-compose file
@@ -148,8 +152,12 @@ async def chatbot_response(request: ChatRequest):
     # Create a basic chain
     chain = prompt_template | model | StrOutputParser()
 
-    # Retrieve documents using hybrid (dense + BM25) retrieval with RRF fusion
-    retrieved_docs = await hybrid_retrieve(vector_store, question, k=10)
+    if request.retrieval_mode == "dense":
+        retrieved_docs = await dense_retrieve(vector_store, question, k=10)
+    elif request.retrieval_mode == "sparse":
+        retrieved_docs = await sparse_retrieve(question, k=10)
+    else:
+        retrieved_docs = await hybrid_retrieve(vector_store, question, k=10)
     
     # Log the retrieved documents
     for doc in retrieved_docs:
