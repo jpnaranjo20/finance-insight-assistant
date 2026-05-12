@@ -156,7 +156,7 @@ EXAMPLE_PROMPTS = [
     "What were Apple's results in 2021?",
     "Current stock price of NVDA",
     "What was Adobe's revenue growth in 2020?",
-    "What does Google's latest 10-K say about risks?",
+    "Compare Tesla's and Rivian's performance over 90 days"
 ]
 
 # Resolve the prompt for this run BEFORE deciding whether to render the
@@ -185,7 +185,7 @@ for msg in st.session_state["messages"]:
     _render_message(msg["role"], msg["content"])
 
 # Small toolbar above the input, only when there's a conversation to clear
-if st.session_state["messages"] and not prompt:
+if st.session_state["messages"]:
     _, clear_col = st.columns([5, 1])
     if clear_col.button("🆕 New chat", width='stretch'):
         st.session_state["messages"] = []
