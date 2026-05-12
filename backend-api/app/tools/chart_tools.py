@@ -1,0 +1,143 @@
+import json
+
+import pandas as pd
+import plotly.graph_objects as go
+import yfinance as yf
+from pydantic import BaseModel, Field
+
+
+class ChartQuery(BaseModel):
+    tickers: str = Field(
+        ...,
+        description="Comma-separated ticker symbols, e.g. 'AAPL' or 'AAPL,MSFT,GOOGL'",
+    )
+    chart_type: str = Field(
+        ...,
+        description="Chart type: 'price_history' (single stock close price), "
+                    "'comparison' (multi-stock % change), or 'metrics' (financial metrics bar chart)",
+    )
+    period: str = Field(
+        default="30d",
+        description="Time period: '7d', '30d', '90d', '180d', or '1y'",
+    )
+
+
+def _price_history_chart(ticker: str, period: str) -> dict:
+    data = yf.download(ticker, period=period, progress=False)
+    if data.empty:
+        raise ValueError(f"No price data found for {ticker}")
+
+    close = data["Close"]
+    if isinstance(close, pd.DataFrame):
+        close = close.iloc[:, 0]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=close.index.tolist(),
+        y=close.values.tolist(),
+        mode="lines",
+        name=ticker,
+        line=dict(color="#2196F3", width=2),
+    ))
+    fig.update_layout(
+        title=f"{ticker} Price History ({period})",
+        xaxis_title="Date",
+        yaxis_title="Price (USD)",
+        template="plotly_white",
+    )
+    return json.loads(fig.to_json())
+
+
+def _comparison_chart(tickers: list, period: str) -> dict:
+    data = yf.download(tickers, period=period, progress=False)
+    if data.empty:
+        raise ValueError(f"No price data found for {tickers}")
+
+    if isinstance(data.columns, pd.MultiIndex):
+        close = data["Close"]
+    else:
+        close = data[["Close"]]
+        close.columns = tickers
+
+    fig = go.Figure()
+    for ticker in close.columns:
+        series = close[ticker].dropna()
+        if series.empty:
+            continue
+        normalized = (series / series.iloc[0] - 1) * 100
+        fig.add_trace(go.Scatter(
+            x=normalized.index.tolist(),
+            y=normalized.values.tolist(),
+            mode="lines",
+            name=ticker,
+        ))
+    fig.update_layout(
+        title=f"Price Comparison ({period})",
+        xaxis_title="Date",
+        yaxis_title="% Change from Start",
+        template="plotly_white",
+    )
+    return json.loads(fig.to_json())
+
+
+def _metrics_chart(ticker: str) -> dict:
+    info = yf.Ticker(ticker).info or {}
+
+    metrics = {
+        "P/E Ratio": info.get("trailingPE"),
+        "EPS": info.get("trailingEps"),
+        "Beta": info.get("beta"),
+        "Dividend Yield (%)": (info.get("dividendYield") or 0) * 100,
+        "Debt/Equity": info.get("debtToEquity"),
+    }
+
+    labels = [k for k, v in metrics.items() if v is not None]
+    values = [metrics[k] for k in labels]
+
+    if not labels:
+        raise ValueError(f"No financial metrics available for {ticker}")
+
+    fig = go.Figure(go.Bar(
+        x=values,
+        y=labels,
+        orientation="h",
+        marker_color="#2196F3",
+    ))
+    fig.update_layout(
+        title=f"{ticker} Financial Metrics",
+        template="plotly_white",
+        xaxis_title="Value",
+    )
+    return json.loads(fig.to_json())
+
+
+def generate_chart(tickers: str, chart_type: str, period: str = "30d") -> str:
+    """
+    Generate a Plotly chart for one or more stock tickers.
+
+    Returns JSON string {"plot_data": <plotly figure dict>, "description": "<summary>"}
+    or a plain error string on failure (so the agent can respond gracefully).
+    """
+    ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+    if not ticker_list:
+        return "No valid tickers provided."
+
+    try:
+        if chart_type == "price_history":
+            plot_data = _price_history_chart(ticker_list[0], period)
+            description = f"Price history for {ticker_list[0]} over {period}."
+        elif chart_type == "comparison":
+            plot_data = _comparison_chart(ticker_list, period)
+            description = f"Normalised price comparison for {', '.join(ticker_list)} over {period}."
+        elif chart_type == "metrics":
+            plot_data = _metrics_chart(ticker_list[0])
+            description = f"Financial metrics for {ticker_list[0]}."
+        else:
+            return (
+                f"Unknown chart_type '{chart_type}'. "
+                "Use 'price_history', 'comparison', or 'metrics'."
+            )
+
+        return json.dumps({"plot_data": plot_data, "description": description})
+    except Exception as e:
+        return f"Could not generate chart: {str(e)}"
