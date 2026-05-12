@@ -1,4 +1,5 @@
 import json
+from typing import Literal
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -16,7 +17,7 @@ class ChartQuery(BaseModel):
         description="Chart type: 'price_history' (single stock close price), "
                     "'comparison' (multi-stock % change), or 'metrics' (financial metrics bar chart)",
     )
-    period: str = Field(
+    period: Literal["7d", "30d", "90d", "180d", "1y"] = Field(
         default="30d",
         description="Time period: '7d', '30d', '90d', '180d', or '1y'",
     )
@@ -51,7 +52,7 @@ def _price_history_chart(ticker: str, period: str) -> dict:
 def _comparison_chart(tickers: list, period: str) -> dict:
     data = yf.download(tickers, period=period, progress=False)
     if data.empty:
-        raise ValueError(f"No price data found for {tickers}")
+        raise ValueError(f"No price data found for {', '.join(tickers)}")
 
     if isinstance(data.columns, pd.MultiIndex):
         close = data["Close"]
@@ -71,6 +72,8 @@ def _comparison_chart(tickers: list, period: str) -> dict:
             mode="lines",
             name=ticker,
         ))
+    if not fig.data:
+        raise ValueError(f"No data available for any of the requested tickers: {', '.join(tickers)}")
     fig.update_layout(
         title=f"Price Comparison ({period})",
         xaxis_title="Date",
