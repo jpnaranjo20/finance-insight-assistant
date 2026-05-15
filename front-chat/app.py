@@ -8,7 +8,6 @@ import streamlit as st
 from dotenv import load_dotenv
 from streamlit_local_storage import LocalStorage
 
-LS_MESSAGES_KEY = "fia_messages"
 LS_THREAD_ID_KEY = "fia_thread_id"
 
 # ===================== Page Configuration =====================
@@ -87,24 +86,27 @@ def call_chat_api(messages, thread_id):
 local_storage = LocalStorage()
 
 if "hydrated" not in st.session_state:
-    saved_messages_raw = local_storage.getItem(LS_MESSAGES_KEY)
     saved_thread_id = local_storage.getItem(LS_THREAD_ID_KEY)
+    thread_id = saved_thread_id or str(uuid.uuid4())
 
-    try:
-        saved_messages = json.loads(saved_messages_raw) if saved_messages_raw else []
-    except (json.JSONDecodeError, TypeError):
-        saved_messages = []
+    # Fetch history from the backend. Returns [] if the container restarted
+    # (MemorySaver wiped), giving us the docker-compose-down-clears-memory behaviour.
+    saved_messages = []
+    if saved_thread_id:
+        try:
+            resp = requests.get(
+                f"{BACKEND_API_URL}/history/{saved_thread_id}", timeout=5
+            )
+            if resp.ok:
+                saved_messages = resp.json().get("messages", [])
+        except Exception:
+            pass
 
     st.session_state["messages"] = saved_messages
-    st.session_state["thread_id"] = saved_thread_id or str(uuid.uuid4())
+    st.session_state["thread_id"] = thread_id
     st.session_state["hydrated"] = True
 
 def _persist_state():
-    local_storage.setItem(
-        LS_MESSAGES_KEY,
-        json.dumps(st.session_state["messages"]),
-        key="ls_set_messages",
-    )
     local_storage.setItem(
         LS_THREAD_ID_KEY,
         st.session_state["thread_id"],
@@ -112,7 +114,6 @@ def _persist_state():
     )
 
 def _clear_persisted_state():
-    local_storage.deleteItem(LS_MESSAGES_KEY, key="ls_del_messages")
     local_storage.deleteItem(LS_THREAD_ID_KEY, key="ls_del_thread_id")
 
 # ===================== Sidebar with Disclaimer =====================
@@ -176,10 +177,10 @@ if not st.session_state["messages"]:
             st.session_state["pending_prompt"] = ex
             st.rerun()
 
-for msg in st.session_state["messages"]:
+for i, msg in enumerate(st.session_state["messages"]):
     if msg.get("plot_data"):
         try:
-            st.plotly_chart(go.Figure(msg["plot_data"]), use_container_width=True)
+            st.plotly_chart(go.Figure(msg["plot_data"]), use_container_width=True, key=f"hist_chart_{i}")
         except Exception as e:
             logger.error(f"Error rendering chart from history: {e}")
     _render_message(msg["role"], msg["content"])
@@ -208,7 +209,7 @@ if prompt:
         if response.get("has_plot"):
             try:
                 fig = go.Figure(response["plot_data"])
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key=f"chart_{len(st.session_state['messages'])}")
             except Exception as e:
                 logger.error(f"Error displaying graph: {e}")
                 st.error(f"Error displaying graph: {str(e)}")
