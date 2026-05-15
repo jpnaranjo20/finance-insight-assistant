@@ -8,6 +8,9 @@ from langchain_core.documents import Document
 _ES_HOST = os.getenv("ELASTICSEARCH_HOST", "elasticsearch")
 _ES_PORT = int(os.getenv("ELASTICSEARCH_PORT", "9200"))
 _ES_INDEX = "finance_chunks"
+
+# Module-level singleton — reuses the connection pool across requests.
+_es_client = AsyncElasticsearch(f"http://{_ES_HOST}:{_ES_PORT}")
 _RRF_K = 60
 _DENSE_WEIGHT  = float(os.getenv("DENSE_WEIGHT",  "0.5"))
 _SPARSE_WEIGHT = float(os.getenv("SPARSE_WEIGHT", "0.5"))
@@ -115,22 +118,18 @@ async def _dense_search(vector_store, query: str, k: int) -> list[Document]:
 
 
 async def _sparse_search(query: str, k: int) -> list[Document]:
-    es = AsyncElasticsearch(f"http://{_ES_HOST}:{_ES_PORT}")
-    try:
-        resp = await es.search(
-            index=_ES_INDEX,
-            body={"query": {"match": {"text": query}}, "size": k},
+    resp = await _es_client.search(
+        index=_ES_INDEX,
+        body={"query": {"match": {"text": query}}, "size": k},
+    )
+    return [
+        Document(
+            page_content=hit["_source"]["text"],
+            metadata={
+                "source":   hit["_source"].get("source", ""),
+                "Header 1": hit["_source"].get("header1", ""),
+                "Header 2": hit["_source"].get("header2", ""),
+            },
         )
-        return [
-            Document(
-                page_content=hit["_source"]["text"],
-                metadata={
-                    "source":   hit["_source"].get("source", ""),
-                    "Header 1": hit["_source"].get("header1", ""),
-                    "Header 2": hit["_source"].get("header2", ""),
-                },
-            )
-            for hit in resp["hits"]["hits"]
-        ]
-    finally:
-        await es.close()
+        for hit in resp["hits"]["hits"]
+    ]

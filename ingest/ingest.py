@@ -122,7 +122,7 @@ def upsert_with_retry(
             )
             print(f"Batch {start // BATCH_SIZE + 1} added to ChromaDB.")
             break
-        except openai.error.RateLimitError as e:
+        except openai.RateLimitError as e:
             retries += 1
             wait_time = 2 ** retries
             print(f"Rate limit error: {e}. Retrying in {wait_time}s...")
@@ -150,14 +150,12 @@ def _ensure_es_index(es: Elasticsearch):
     if not es.indices.exists(index=ES_INDEX):
         es.indices.create(
             index=ES_INDEX,
-            body={
-                "mappings": {
-                    "properties": {
-                        "text":    {"type": "text",    "analyzer": "english"},
-                        "source":  {"type": "keyword"},
-                        "header1": {"type": "text"},
-                        "header2": {"type": "text"},
-                    }
+            mappings={
+                "properties": {
+                    "text":    {"type": "text",    "analyzer": "english"},
+                    "source":  {"type": "keyword"},
+                    "header1": {"type": "text"},
+                    "header2": {"type": "text"},
                 }
             },
         )
@@ -208,16 +206,20 @@ def _index_batch_to_es(
 
 #  Shared chunking logic 
 
-def _build_chunks(mds_directory: str):
-    """Read all MD files and return (chunk_docs, chunk_metadata, chunk_ids)."""
+def _build_chunks(mds_directory: str, only_files: list | None = None):
+    """Read MD files and return (chunk_docs, chunk_metadata, chunk_ids).
+
+    If only_files is given, only those filenames are processed (incremental
+    ingestion). Otherwise all files in the directory are processed.
+    """
     docs = []
     file_names = []
 
+    candidates = only_files if only_files is not None else os.listdir(mds_directory)
     s = time.time()
-    # Process each MD
-    for md_file in os.listdir(mds_directory):
-        
-        # Path to MD file
+    for md_file in candidates:
+        if not md_file.endswith(".md"):
+            continue
         md_path = os.path.join(mds_directory, md_file)
         file_names.append(f"{md_file[:-3]}.pdf")
         with open(md_path, "r") as f:
@@ -276,7 +278,7 @@ def populate_chroma_store():
         return
     print(f"Found {len(new_files)} new files to index into ChromaDB.")
 
-    chunk_docs, chunk_metadata, chunk_ids = _build_chunks(mds_directory)
+    chunk_docs, chunk_metadata, chunk_ids = _build_chunks(mds_directory, only_files=new_files)
 
     s = time.time()
     for i in range(0, len(chunk_ids), BATCH_SIZE):
@@ -299,7 +301,7 @@ def populate_es_store():
         return
     print(f"Found {len(new_files)} new files to index into Elasticsearch.")
 
-    chunk_docs, chunk_metadata, chunk_ids = _build_chunks(mds_directory)
+    chunk_docs, chunk_metadata, chunk_ids = _build_chunks(mds_directory, only_files=new_files)
 
     s = time.time()
     for i in range(0, len(chunk_ids), BATCH_SIZE):
