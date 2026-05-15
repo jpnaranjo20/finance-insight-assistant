@@ -36,10 +36,14 @@ def _metric_col(metric: str, df: pd.DataFrame):
     candidates = [
         metric,
         metric.lower(),
-        "context_recall"               if metric == "LLMContextRecall"  else None,
-        "faithfulness"                 if metric == "Faithfulness"       else None,
-        "factual_correctness"          if metric == "FactualCorrectness" else None,
-        "factual_correctness(mode=f1)" if metric == "FactualCorrectness" else None,
+        "context_recall"                   if metric == "LLMContextRecall"    else None,
+        "llm_context_precision_with_reference" if metric == "LLMContextPrecision" else None,
+        "llm_context_precision"                if metric == "LLMContextPrecision" else None,
+        "context_precision"                    if metric == "LLMContextPrecision" else None,
+        "faithfulness"                     if metric == "Faithfulness"         else None,
+        "factual_correctness"              if metric == "FactualCorrectness"   else None,
+        "factual_correctness(mode=f1)"     if metric == "FactualCorrectness"   else None,
+        "factual_correctness(mode=recall)" if metric == "FactualCorrectness"   else None,
     ]
     return next((c for c in candidates if c and c in df.columns), None)
 
@@ -105,16 +109,18 @@ def _score_cols(df: pd.DataFrame) -> list:
             and pd.api.types.is_numeric_dtype(df[c])]
 
 
-ALL_METRICS = ["LLMContextRecall", "Faithfulness", "FactualCorrectness"]
+ALL_METRICS = ["LLMContextRecall", "LLMContextPrecision", "Faithfulness", "FactualCorrectness"]
 METRIC_LABELS = {
-    "LLMContextRecall": "Context Recall",
-    "Faithfulness":      "Faithfulness",
-    "FactualCorrectness": "Factual Correctness",
+    "LLMContextRecall":    "Context Recall",
+    "LLMContextPrecision": "Context Precision",
+    "Faithfulness":         "Faithfulness",
+    "FactualCorrectness":   "Factual Correctness",
 }
 METRIC_DESCRIPTIONS = {
-    "LLMContextRecall": "Did the retrieved context contain the information needed to answer?",
-    "Faithfulness":      "Are the claims in the answer actually supported by the retrieved context?",
-    "FactualCorrectness": "Does the answer agree with the reference answer on the facts?",
+    "LLMContextRecall":    "Did the retrieved context contain the information needed to answer?",
+    "LLMContextPrecision": "Are the retrieved chunks relevant, or is there noise? (are we retrieving too much garbage?)",
+    "Faithfulness":         "Are the claims in the answer actually supported by the retrieved context?",
+    "FactualCorrectness":   "Does the answer cover the facts in the reference? (recall mode — extra correct detail is not penalised)",
 }
 
 MODE_OPTIONS = ["hybrid", "dense"]  # sparse-only mode intentionally excluded from eval comparison
@@ -240,70 +246,62 @@ if "last_result" in st.session_state:
     # ---- Aggregate scores ----
     st.subheader("Aggregate scores")
 
-    if len(modes_used) == 1:
-        # Single mode: metric cards (original layout)
-        df = result_dict[modes_used[0]]
-        agg_cols = st.columns(len(metrics_used))
-        for col, metric in zip(agg_cols, metrics_used):
+    agg_rows = []
+    mode_means: dict = {}
+    for mode in modes_used:
+        df = result_dict[mode]
+        mode_means[mode] = {}
+        for metric in metrics_used:
             col_name = _metric_col(metric, df)
-            if col_name is None:
-                col.metric(METRIC_LABELS[metric], "—")
-            else:
-                mean = pd.to_numeric(df[col_name], errors="coerce").mean()
-                col.metric(METRIC_LABELS[metric], f"{mean:.3f}" if pd.notna(mean) else "—")
-    else:
-        # Two modes: grouped bar chart + delta chips
-        agg_rows = []
-        mode_means: dict = {}
-        for mode in modes_used:
-            df = result_dict[mode]
-            mode_means[mode] = {}
-            for metric in metrics_used:
-                col_name = _metric_col(metric, df)
-                mean = (
-                    pd.to_numeric(df[col_name], errors="coerce").mean()
-                    if col_name else float("nan")
+            mean = (
+                pd.to_numeric(df[col_name], errors="coerce").mean()
+                if col_name else float("nan")
+            )
+            mode_means[mode][metric] = mean
+            agg_rows.append({
+                "metric": METRIC_LABELS[metric],
+                "mode":   MODE_LABELS.get(mode, mode),
+                "score":  mean,
+            })
+
+    agg_df = pd.DataFrame(agg_rows)
+    color_map = {
+        MODE_LABELS["hybrid"]: "#4C78A8",
+        MODE_LABELS["dense"]:  "#F58518",
+    }
+    fig = px.bar(
+        agg_df,
+        x="metric",
+        y="score",
+        color="mode",
+        barmode="group",
+        labels={"metric": "Metric", "score": "Score (0–1)", "mode": "Retrieval mode"},
+        color_discrete_map=color_map,
+    )
+    fig.update_yaxes(range=[0, 1])
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Delta chips (hybrid − dense)
+    if "hybrid" in modes_used and "dense" in modes_used:
+        delta_cols = st.columns(len(metrics_used))
+        for col, metric in zip(delta_cols, metrics_used):
+            h = mode_means.get("hybrid", {}).get(metric, float("nan"))
+            d = mode_means.get("dense",  {}).get(metric, float("nan"))
+            if pd.notna(h) and pd.notna(d):
+                delta = h - d
+                sign  = "+" if delta >= 0 else ""
+                color = "green" if delta >= 0 else "red"
+                col.markdown(
+                    f"<div style='text-align:center'>"
+                    f"<span style='color:{color};font-size:0.85em;'>"
+                    f"{sign}{delta:.3f} vs dense-only</span></div>",
+                    unsafe_allow_html=True,
                 )
-                mode_means[mode][metric] = mean
-                agg_rows.append({
-                    "metric": METRIC_LABELS[metric],
-                    "mode":   MODE_LABELS.get(mode, mode),
-                    "score":  mean,
-                })
 
-        agg_df = pd.DataFrame(agg_rows)
-        color_map = {
-            MODE_LABELS["hybrid"]: "#4C78A8",
-            MODE_LABELS["dense"]:  "#F58518",
-        }
-        fig = px.bar(
-            agg_df,
-            x="metric",
-            y="score",
-            color="mode",
-            barmode="group",
-            labels={"metric": "Metric", "score": "Score (0–1)", "mode": "Retrieval mode"},
-            color_discrete_map=color_map,
-        )
-        fig.update_yaxes(range=[0, 1])
-        st.plotly_chart(fig, use_container_width=True)
-
-        # Delta chips (hybrid − dense)
-        if "hybrid" in modes_used and "dense" in modes_used:
-            delta_cols = st.columns(len(metrics_used))
-            for col, metric in zip(delta_cols, metrics_used):
-                h = mode_means.get("hybrid", {}).get(metric, float("nan"))
-                d = mode_means.get("dense",  {}).get(metric, float("nan"))
-                if pd.notna(h) and pd.notna(d):
-                    delta = h - d
-                    sign  = "+" if delta >= 0 else ""
-                    color = "green" if delta >= 0 else "red"
-                    col.markdown(
-                        f"<div style='text-align:center'>"
-                        f"<span style='color:{color};font-size:0.85em;'>"
-                        f"{sign}{delta:.3f} vs dense-only</span></div>",
-                        unsafe_allow_html=True,
-                    )
+    # ---- Metric definitions ----
+    st.subheader("What each metric measures")
+    for m in metrics_used:
+        st.markdown(f"- **{METRIC_LABELS[m]}** — {METRIC_DESCRIPTIONS[m]}")
 
     # ---- Per-question scores chart ----
     st.subheader("Per-question scores")
@@ -326,7 +324,7 @@ if "last_result" in st.session_state:
         score_cols = _score_cols(df)
         if score_cols:
             chart_df = df[["user_input"] + score_cols].copy()
-            chart_df["question_idx"] = range(len(chart_df))
+            chart_df["question_idx"] = range(1, len(chart_df) + 1)
             ldf = chart_df.melt(
                 id_vars=["question_idx", "user_input"],
                 value_vars=score_cols,

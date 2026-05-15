@@ -72,7 +72,17 @@ def build_eval_records(
         try:
             answer, contexts, sources, provenance = fetch_rag_response(q, retrieval_mode)
             error = None
-        except Exception as e:
+        except requests.exceptions.ConnectionError as e:
+            # Fail fast: if the very first call can't connect, the api service
+            # is not up yet — no point retrying the remaining questions.
+            if i == 0:
+                raise RuntimeError(
+                    f"Cannot reach the RAG API at {API_URL}. "
+                    "The api service may still be initialising (ONNX model download + "
+                    "ChromaDB connection can take 1–2 min). "
+                    "Check `docker logs api` and wait for 'Application startup complete.' "
+                    f"before retrying.\n\nOriginal error: {e}"
+                ) from e
             answer = ""
             contexts = []
             sources = []
@@ -119,15 +129,19 @@ def run_eval(
         Faithfulness,
         FactualCorrectness,
         LLMContextRecall,
+        LLMContextPrecisionWithReference,
     )
 
     if retrieval_modes is None:
         retrieval_modes = ["hybrid"]
 
     metric_map = {
-        "LLMContextRecall": LLMContextRecall,
-        "Faithfulness":      Faithfulness,
-        "FactualCorrectness": FactualCorrectness,
+        "LLMContextRecall":     LLMContextRecall,
+        "LLMContextPrecision":  LLMContextPrecisionWithReference,
+        "Faithfulness":          Faithfulness,
+        # recall mode: does the answer cover the reference? extra correct claims are not penalised.
+        # f1 mode would tank precision whenever the LLM's verbose answer exceeds the short reference.
+        "FactualCorrectness":   lambda: FactualCorrectness(mode="recall"),
     }
     metric_names_valid = [name for name in metric_names if name in metric_map]
     if not metric_names_valid:
