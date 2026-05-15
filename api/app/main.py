@@ -25,6 +25,9 @@ class ChatRequest(BaseModel):
     retrieval_mode: Literal["hybrid", "dense", "sparse"] = Field(
         "hybrid", title="Retrieval mode"
     )
+    retrieval_only: bool = Field(
+        False, title="Return retrieved docs without calling the LLM"
+    )
 
 # Load environment variables
 CHROMA_HOST = str(os.getenv("CHROMADB_HOST")) # This has to be the name of the service in the docker-compose file
@@ -153,18 +156,19 @@ async def chatbot_response(request: ChatRequest):
     chain = prompt_template | model | StrOutputParser()
 
     if request.retrieval_mode == "dense":
-        retrieved_docs = await dense_retrieve(vector_store, question, k=10)
+        retrieved_docs = await dense_retrieve(vector_store, question, k=5)
     elif request.retrieval_mode == "sparse":
-        retrieved_docs = await sparse_retrieve(question, k=10)
+        retrieved_docs = await sparse_retrieve(question, k=5)
     else:
-        retrieved_docs = await hybrid_retrieve(vector_store, question, k=10)
-    
-    # Log the retrieved documents
+        retrieved_docs = await hybrid_retrieve(vector_store, question, k=5)
+
     for doc in retrieved_docs:
         print(f"Document: {doc.page_content}")
         print(f"Metadata: {doc.metadata}")
-    
-    # Run the chain
+
+    if request.retrieval_only:
+        return {"llm_response": None, "retrieved_docs": retrieved_docs}
+
     llm_response = await chain.ainvoke({"context": "\n\n".join([doc.page_content for doc in retrieved_docs]), "question": question})
-    
+
     return {"llm_response": llm_response, "retrieved_docs": retrieved_docs}
