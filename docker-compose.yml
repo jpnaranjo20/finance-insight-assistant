@@ -32,8 +32,10 @@ services:
             context: ./ingest
             dockerfile: Dockerfile.ingest
         depends_on:
-            - chromadb
-            - elasticsearch
+            chromadb:
+                condition: service_started
+            elasticsearch:
+                condition: service_healthy
         volumes:
             - ./seed_data:/ingest/dataset_md
         env_file:
@@ -45,8 +47,10 @@ services:
             context: ./api
             dockerfile: Dockerfile
         depends_on:
-            - chromadb
-            - elasticsearch
+            chromadb:
+                condition: service_started
+            elasticsearch:
+                condition: service_healthy
         ports:
             - '8002:80' # Expose the API on port 8002 of the host machine
         env_file:

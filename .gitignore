@@ -183,3 +183,6 @@ preprocess/dataset_md/
 # Local corpus for ChromaDB ingestion (drop your *.md files here; not tracked)
 seed_data/*
 !seed_data/.gitkeep
+
+# docs
+docs/
