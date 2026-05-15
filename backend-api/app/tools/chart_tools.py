@@ -1,5 +1,6 @@
 import json
 import uuid
+from collections import OrderedDict
 from typing import Literal
 
 import pandas as pd
@@ -7,9 +8,12 @@ import plotly.graph_objects as go
 import yfinance as yf
 from pydantic import BaseModel, Field
 
-# Chart data stored here so the full Plotly JSON never enters the LLM context.
-# The backend reads from this dict using the ID embedded in the tool message.
+# Ephemeral chart data — consumed by the /chat endpoint immediately after a response.
 _pending_charts: dict = {}
+# Persistent chart data — retained for the /history endpoint so charts survive refresh.
+# Capped at 500 entries (oldest evicted first) to bound memory usage.
+_CHART_STORE_MAX = 500
+_chart_store: OrderedDict = OrderedDict()
 
 
 class ChartQuery(BaseModel):
@@ -148,6 +152,9 @@ def generate_chart(tickers: str, chart_type: str, period: str = "30d") -> str:
 
         chart_id = uuid.uuid4().hex[:8]
         _pending_charts[chart_id] = plot_data
+        _chart_store[chart_id] = plot_data
+        if len(_chart_store) > _CHART_STORE_MAX:
+            _chart_store.popitem(last=False)
         return f"Chart generated [chart:{chart_id}]: {description} It will be displayed to the user automatically."
     except Exception as e:
         return f"Could not generate chart: {str(e)}"

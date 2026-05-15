@@ -10,7 +10,7 @@ import yfinance as yf  # Make sure you have the yfinance library installed
 import json
 import re
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from app.tools.chart_tools import generate_chart, ChartQuery, _pending_charts
+from app.tools.chart_tools import generate_chart, ChartQuery, _pending_charts, _chart_store
 from langchain.tools import StructuredTool
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
@@ -51,51 +51,52 @@ class ChatResponse(BaseModel):
 class ChromaQuerySchema(BaseModel):
     query: str
 
-def _call_chroma_api_tool(query: str) -> Dict[str, Any]:
+def _call_chroma_api_tool(query: str) -> str:
     """
-    Make a call to the Chroma API (e.g., http://api:80/chatbot)
-    and return a dictionary with 'llm_response' and 'retrieved_docs'.
+    Retrieve relevant document chunks from the RAG service for the given query.
+    Returns the raw chunk text as context so the agent performs the single LLM generation.
     """
     try:
         api_url = os.getenv("API_URL", "http://api:80/chatbot")
-        payload = {"question": query}
+        payload = {"question": query, "retrieval_only": True}
         resp = requests.post(api_url, json=payload, timeout=60)
 
         logger.info(f"Response code: {resp.status_code}")
-        logger.info(f"Response content: {resp.text}")
 
         resp.raise_for_status()
         data = resp.json()
-        
-        sources = [
+
+        docs = data.get("retrieved_docs", [])
+        if not docs:
+            return "No relevant documents found in the corpus for this query."
+
+        sources = list({
             doc["metadata"]["source"]
-            for doc in data.get("retrieved_docs", [])
+            for doc in docs
             if "metadata" in doc and "source" in doc["metadata"]
-        ]
+        })
 
-        response = data.get("llm_response", "")
+        chunks = "\n\n".join(
+            f"[Source: {doc['metadata'].get('source', 'unknown')}]\n{doc.get('page_content', '')}"
+            for doc in docs
+        )
 
-        return f"{response} \n\nSources: {sources}"
+        return f"{chunks}\n\nSources: {sources}"
 
     except Exception as e:
         logger.error(f"Error calling the Chroma API: {e}", exc_info=True)
-        return {
-            "llm_response": f"An error occurred while querying Chroma: {str(e)}",
-            "retrieved_docs": []
-        }
+        return f"An error occurred while querying the document corpus: {str(e)}"
 
 chroma_tool = StructuredTool.from_function(
     func=_call_chroma_api_tool,
     name="call_chroma_api",
     description=(
-        "Queries the Chroma API using a given 'query' and retrieves relevant vector-based information. "
-        "Returns two key outputs:\n"
-        "- 'llm_response': A generated response based on the retrieved data.\n"
-        "- 'retrieved_docs': A collection of the most relevant documents fetched from the Chroma database. "
-        "This tool is useful for retrieving contextual financial data, past stock trends, or other relevant financial insights."
+        "Retrieves relevant document chunks from the financial corpus for a given query. "
+        "Returns raw text excerpts with their source filenames. "
+        "Use the returned context to compose your answer — do not return the chunks verbatim."
     ),
     args_schema=ChromaQuerySchema,
-    return_direct=True
+    return_direct=False
 )
 
 # ==================================================
@@ -347,6 +348,37 @@ async def root():
     Test endpoint to verify that the server is running correctly.
     """
     return {"message": "Welcome! Your FastAPI backend is up and running."}
+
+@app.get("/history/{thread_id}")
+async def get_history(thread_id: str):
+    """Return the human/assistant messages for a thread from MemorySaver.
+    Returns an empty list if the thread doesn't exist (e.g. after a restart)."""
+    try:
+        state = graph_builder.get_state({"configurable": {"thread_id": thread_id}})
+        raw = (state.values or {}).get("messages", [])
+    except Exception:
+        return {"messages": []}
+
+    messages = []
+    pending_chart_id = None
+
+    for msg in raw:
+        if msg.type == "human":
+            messages.append({"role": "user", "content": msg.content})
+        elif msg.type == "tool" and getattr(msg, "name", None) == "generate_chart":
+            m = re.search(r'\[chart:([a-f0-9]+)\]', msg.content)
+            if m:
+                pending_chart_id = m.group(1)
+        elif msg.type == "ai" and not getattr(msg, "tool_calls", None):
+            entry: dict = {"role": "assistant", "content": msg.content}
+            if pending_chart_id:
+                plot_data = _chart_store.get(pending_chart_id)
+                if plot_data:
+                    entry["plot_data"] = plot_data
+                pending_chart_id = None
+            messages.append(entry)
+
+    return {"messages": messages}
 
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
